@@ -3,10 +3,12 @@
 #
 # WATCHDOG: каждые 60 сек проверяет, что polling реально получает обновления.
 # При 3 неудачах подряд — перезапускает updater (лечит "тихое зависание" PTB).
+#
+# ИЗМЕНЕНО: register_commands() — регистрирует /start, /stop, /status в меню.
 
 import asyncio
 import logging
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 import logger as research_logger
@@ -38,6 +40,18 @@ class TelegramBot:
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(CommandHandler("stop", self.stop_command))
         self.application.add_handler(CommandHandler("status", self.status_command))
+
+    async def register_commands(self):
+        """Регистрирует команды в меню Telegram (кнопка /)."""
+        try:
+            await self.application.bot.set_my_commands([
+                BotCommand("status", "Статус робота"),
+                BotCommand("start", "Включить новые входы"),
+                BotCommand("stop", "Выключить новые входы"),
+            ])
+            logging.info("[telegram] Команды зарегистрированы в меню.")
+        except Exception as e:
+            logging.warning(f"[telegram] Не удалось зарегистрировать команды: {e}")
 
     def _authorized(self, update: Update) -> bool:
         user = update.effective_user
@@ -92,7 +106,6 @@ class TelegramBot:
         while True:
             await asyncio.sleep(60)
             try:
-                # Лёгкий запрос: get_me. Если polling завис, он может не отвечать.
                 await asyncio.wait_for(self.application.bot.get_me(), timeout=15.0)
                 failures = 0
             except Exception as e:
