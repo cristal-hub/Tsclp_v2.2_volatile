@@ -1,1 +1,79 @@
 {"timestamp_utc": "2026-11-02T16:10:46.165733+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:29:49.847531+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:29:49.862090+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:29:49.875919+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["BBG004730N88", 1.0]]}
+{"timestamp_utc": "2026-11-02T16:29:50.202837+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:29:50.233445+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["FIGI", 1.0]]}
+{"timestamp_utc": "2026-11-02T16:29:50.257376+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:29:50.261333+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:29:51.148371+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T16:29:51.153201+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T16:29:51.192983+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T16:31:49.235541+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:43:15.601721+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:48:54.439040+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:51:16.786241+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:51:16.797079+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:51:16.808394+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["BBG004730N88", 1.0]]}
+{"timestamp_utc": "2026-11-02T16:51:16.820449+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:51:16.832154+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["FIGI", 1.0]]}
+{"timestamp_utc": "2026-11-02T16:51:16.843358+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:51:16.846692+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:51:17.445981+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T16:51:17.452233+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T16:51:17.466773+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T16:53:07.640449+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:54:26.714569+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:54:26.727551+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T16:54:26.757250+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["BBG004730N88", 1.0]]}
+{"timestamp_utc": "2026-11-02T16:54:26.777057+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:54:26.823340+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["FIGI", 1.0]]}
+{"timestamp_utc": "2026-11-02T16:54:26.853724+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:54:26.857500+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T16:54:27.458121+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T16:54:27.466032+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T16:54:27.476329+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T16:56:25.073365+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:32:16.095560+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:32:17.242260+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:32:17.254438+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:32:17.268860+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["BBG004730N88", 1.0]]}
+{"timestamp_utc": "2026-11-02T17:32:17.297093+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:32:17.315755+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["FIGI", 1.0]]}
+{"timestamp_utc": "2026-11-02T17:32:17.341499+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:32:17.351130+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:32:18.099583+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:32:18.104041+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:32:18.135766+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:35:11.336556+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:35:11.542003+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:35:11.580324+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:35:11.597836+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["BBG004730N88", 1.0]]}
+{"timestamp_utc": "2026-11-02T17:35:11.611600+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:35:11.625190+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["FIGI", 1.0]]}
+{"timestamp_utc": "2026-11-02T17:35:11.646296+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:35:11.656973+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:35:12.280264+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:35:12.284132+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:35:12.319162+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:36:48.687347+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 747245263, "username": "domenictorrento", "text": "/status", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:36:55.626116+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 747245263, "username": "domenictorrento", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:36:55.632641+00:00", "event": "TRADING_START", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER"}
+{"timestamp_utc": "2026-11-02T17:37:51.438094+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:38:03.625675+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 747245263, "username": "domenictorrento", "text": "/status", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:46:15.285613+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 747245263, "username": "domenictorrento", "text": "/stop", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:46:15.294062+00:00", "event": "TRADING_STOP", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER"}
+{"timestamp_utc": "2026-11-02T17:47:06.161988+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:47:06.165531+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:47:06.194228+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:47:28.076479+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:47:28.283265+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:47:28.298788+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 0}
+{"timestamp_utc": "2026-11-02T17:47:28.329193+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["BBG004730N88", 1.0]]}
+{"timestamp_utc": "2026-11-02T17:47:28.351223+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:47:28.370266+00:00", "event": "RECONCILE_UNKNOWN", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": [["FIGI", 1.0]]}
+{"timestamp_utc": "2026-11-02T17:47:28.395047+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:47:28.408307+00:00", "event": "RECONCILE_OK", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "positions": 1}
+{"timestamp_utc": "2026-11-02T17:47:28.890104+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": true}
+{"timestamp_utc": "2026-11-02T17:47:28.894861+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 99999, "username": "user", "text": "/start", "authorized": false}
+{"timestamp_utc": "2026-11-02T17:47:28.907517+00:00", "event": "TG_INCOMING", "config_profile": "CONSERVATIVE", "commission_mode": "TRADER", "user_id": 12345, "username": "user", "text": "/start", "authorized": false}

@@ -1,13 +1,9 @@
 # main.py
 # Tsclp_v2.1_volatile — основной цикл (ТОЛЬКО ПЕСОЧНИЦА).
 #
-# ИЗМЕНЕНО: slippage выхода LONG; частичное исполнение; повторный reconcile;
-#           logged; фактическая комиссия (вход+выход) раздельно;
-#           slippage_percent; cumulative_net_pnl_rub;
-#           Telegram watchdog восстанавливает бота, даже если старт был без него.
-# ИЗМЕНЕНО: register_commands() — команды /start, /stop, /status в меню Telegram.
-# ИЗМЕНЕНО: watchdog принудительно перезапускает polling каждые 5 минут.
-# ИСПРАВЛЕНО: global telegram_bot в _telegram_watchdog (UnboundLocalError).
+# ИЗМЕНЕНО (ТЗ): Telegram lifecycle (start/stop/shutdown); fail-closed reconcile;
+#                mixed commission_source; log_trade bool; entry_order_id.
+# Стратегия, скринер, CONSERVATIVE, POSITION_QUANTITY_IS_LOTS — НЕ менялись.
 
 import asyncio
 import csv
@@ -50,8 +46,6 @@ telegram_bot = None
 main_client = None
 reconcile_done = False
 monitor_ref = None
-
-POLLING_RESTART_INTERVAL_SECONDS = 300
 
 
 def is_trading_enabled() -> bool:
@@ -108,7 +102,33 @@ async def notify(text: str):
             logging.warning(f"Telegram send error: {e}")
 
 
+async def _stop_telegram_bot():
+    """Корректное завершение Telegram-приложения."""
+    global telegram_bot
+    if telegram_bot is None:
+        return
+    try:
+        try:
+            await asyncio.wait_for(telegram_bot.application.updater.stop(), timeout=10.0)
+        except Exception as e:
+            logging.warning(f"[tg] updater.stop(): {e}")
+        try:
+            await asyncio.wait_for(telegram_bot.application.stop(), timeout=10.0)
+        except Exception as e:
+            logging.warning(f"[tg] application.stop(): {e}")
+        try:
+            await asyncio.wait_for(telegram_bot.application.shutdown(), timeout=10.0)
+        except Exception as e:
+            logging.warning(f"[tg] application.shutdown(): {e}")
+        logging.info("[tg] Telegram-бот остановлен.")
+    except Exception as e:
+        logging.warning(f"[tg] Ошибка остановки: {e}")
+    finally:
+        telegram_bot = None
+
+
 async def _try_create_telegram_bot() -> bool:
+    """Создаёт TelegramBot с ПОЛНЫМ lifecycle: initialize → start → start_polling."""
     global telegram_bot
     if not (config.ENABLE_TELEGRAM and TelegramBot):
         return False
@@ -119,55 +139,28 @@ async def _try_create_telegram_bot() -> bool:
             {'start_trading': start_trading, 'stop_trading': stop_trading, 'get_status': get_status},
         )
         await asyncio.wait_for(bot.application.initialize(), timeout=15.0)
+        await asyncio.wait_for(bot.application.start(), timeout=15.0)          # ← ОБЯЗАТЕЛЬНО
         await asyncio.wait_for(bot.application.updater.start_polling(), timeout=15.0)
         await bot.register_commands()
         telegram_bot = bot
-        logging.info("[tg-watchdog] Telegram-бот создан и запущен.")
+        logging.info("[tg] Telegram-бот создан и запущен (initialize → start → polling).")
         await notify("🤖 Tsclp_v2.1_volatile: Telegram восстановлен.")
         return True
     except Exception as e:
-        logging.warning(f"[tg-watchdog] Не удалось создать Telegram-бот: {e}")
-        telegram_bot = None
-        return False
-
-
-async def _restart_polling(bot) -> bool:
-    try:
-        try:
-            await asyncio.wait_for(bot.application.updater.stop(), timeout=15.0)
-        except Exception as stop_err:
-            logging.warning(f"[tg-watchdog] updater.stop() не удался: {stop_err}")
-        await asyncio.wait_for(bot.application.updater.start_polling(), timeout=15.0)
-        logging.info("[tg-watchdog] Polling принудительно перезапущен.")
-        return True
-    except Exception as e:
-        logging.error(f"[tg-watchdog] Не удалось перезапустить polling: {e}")
+        logging.warning(f"[tg] Не удалось создать Telegram-бот: {e}")
+        await _stop_telegram_bot()
         return False
 
 
 async def _telegram_watchdog():
-    global telegram_bot
     if not (config.ENABLE_TELEGRAM and TelegramBot):
         return
     failures = 0
-    last_restart = datetime.now(timezone.utc)
     while True:
         await asyncio.sleep(60)
         if telegram_bot is None:
             await _try_create_telegram_bot()
-            last_restart = datetime.now(timezone.utc)
             continue
-
-        now = datetime.now(timezone.utc)
-        if (now - last_restart).total_seconds() >= POLLING_RESTART_INTERVAL_SECONDS:
-            if await _restart_polling(telegram_bot):
-                last_restart = now
-                failures = 0
-                continue
-            else:
-                telegram_bot = None
-                continue
-
         try:
             await asyncio.wait_for(telegram_bot.application.bot.get_me(), timeout=15.0)
             if failures > 0:
@@ -177,12 +170,9 @@ async def _telegram_watchdog():
             failures += 1
             logging.warning(f"[tg-watchdog] Telegram недоступен ({failures}/3): {e}")
             if failures >= 3:
-                logging.info("[tg-watchdog] Пробую перезапустить polling...")
-                if await _restart_polling(telegram_bot):
-                    last_restart = datetime.now(timezone.utc)
-                    failures = 0
-                else:
-                    telegram_bot = None
+                logging.info("[tg-watchdog] Полный перезапуск Telegram...")
+                await _stop_telegram_bot()
+                failures = 0
 
 
 def _trade_id_already_logged(trade_id: str) -> bool:
@@ -203,15 +193,22 @@ def _trade_id_already_logged(trade_id: str) -> bool:
 
 
 async def reconcile(client: TinkoffClient, monitor: ExecutionMonitor):
+    """
+    Fail-closed: если get_positions() вернул None (ошибка API),
+    uncertain_state НЕ снимается, reconcile_done = False.
+    """
     global reconcile_done
     positions = await client.get_positions()
+
+    # КЛЮЧЕВОЕ: None = ошибка API, состояние неизвестно.
     if positions is None:
-        logging.error("[reconcile] Не удалось получить портфель — сверка не завершена.")
+        logging.error("[reconcile] Ошибка получения портфеля — состояние неизвестно, сверка не завершена.")
+        client.uncertain_state = True
         reconcile_done = False
         return
 
     if not positions:
-        logging.info("[reconcile] Позиций нет.")
+        logging.info("[reconcile] Позиций нет (достоверно).")
         reconcile_done = True
         client.uncertain_state = False
         research_logger.log_event("RECONCILE_OK", {"positions": 0})
@@ -296,6 +293,7 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
         turnover = (exit_price + pos.entry_price) * shares
         model_total_commission = abs(turnover * config.COMMISSION_PER_SIDE)
 
+        # Раздельные комиссии
         if pos.actual_commission is not None:
             exit_commission = pos.actual_commission
         else:
@@ -308,8 +306,13 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
 
         total_commission = entry_commission + exit_commission
 
-        if pos.actual_commission is not None and pos.entry_actual_commission is not None:
+        # commission_source: actual / mixed / model
+        entry_actual = pos.entry_actual_commission is not None
+        exit_actual = pos.actual_commission is not None
+        if entry_actual and exit_actual:
             commission_source = "actual"
+        elif entry_actual or exit_actual:
+            commission_source = "mixed"
         else:
             commission_source = "model"
 
@@ -319,75 +322,74 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
         cumulative_before = research_logger.get_cumulative_net_pnl()
         cumulative_after = cumulative_before + net_pnl
 
-        try:
-            research_logger.log_trade({
-                "trade_id": trade_id,
-                "timestamp_utc": pos.close_requested_at or "",
-                "ticker": pos.ticker, "figi": pos.figi, "lot_size": pos.lot_size,
-                "side": pos.direction,
-                "signal_reason": pos.signal_reason,
-                "signal_time": pos.signal_time,
-                "price_before_order": pos.price_before_order,
-                "order_send_time": pos.order_send_time,
-                "order_id": pos.close_order_id or "",
-                "execution_status": "FILL_PARTIAL" if pos.partial else "FILL",
-                "requested_lots": pos.quantity,
-                "executed_lots": executed_lots,
-                "execution_price": f"{pos.entry_price:.4f}",
-                "exit_reason": pos.close_reason or "",
-                "exit_price": f"{exit_price:.4f}",
-                "exit_time": datetime.now(timezone.utc).isoformat(),
-                "commission_rub": f"{total_commission:.2f}",
-                "commission_source": commission_source,
-                "actual_commission_rub": f"{pos.actual_commission:.2f}" if pos.actual_commission is not None else "",
-                "entry_commission_rub": f"{entry_commission:.2f}",
-                "exit_commission_rub": f"{exit_commission:.2f}",
-                "slippage_rub": f"{total_slippage:+.2f}",
-                "slippage_percent": f"{slippage_percent:+.3f}",
-                "gross_pnl_rub": f"{gross_pnl:.2f}",
-                "net_pnl_rub": f"{net_pnl:.2f}",
-                "cumulative_net_pnl_rub": f"{cumulative_after:.2f}",
-                "error_note": "",
-            })
+        trade_row = {
+            "trade_id": trade_id,
+            "timestamp_utc": pos.close_requested_at or "",
+            "ticker": pos.ticker, "figi": pos.figi, "lot_size": pos.lot_size,
+            "side": pos.direction,
+            "signal_reason": pos.signal_reason,
+            "signal_time": pos.signal_time,
+            "price_before_order": pos.price_before_order,
+            "order_send_time": pos.order_send_time,
+            "order_id": pos.close_order_id or "",
+            "execution_status": "FILL_PARTIAL" if pos.partial else "FILL",
+            "requested_lots": pos.quantity,
+            "executed_lots": executed_lots,
+            "execution_price": f"{pos.entry_price:.4f}",
+            "exit_reason": pos.close_reason or "",
+            "exit_price": f"{exit_price:.4f}",
+            "exit_time": datetime.now(timezone.utc).isoformat(),
+            "commission_rub": f"{total_commission:.2f}",
+            "commission_source": commission_source,
+            "actual_commission_rub": f"{pos.actual_commission:.2f}" if pos.actual_commission is not None else "",
+            "entry_commission_rub": f"{entry_commission:.2f}",
+            "exit_commission_rub": f"{exit_commission:.2f}",
+            "slippage_rub": f"{total_slippage:+.2f}",
+            "slippage_percent": f"{slippage_percent:+.3f}",
+            "gross_pnl_rub": f"{gross_pnl:.2f}",
+            "net_pnl_rub": f"{net_pnl:.2f}",
+            "cumulative_net_pnl_rub": f"{cumulative_after:.2f}",
+            "error_note": "",
+        }
+
+        # КЛЮЧЕВОЕ: logged = True ТОЛЬКО если log_trade вернул True
+        if research_logger.log_trade(trade_row):
             pos.logged = True
-        except Exception as e:
-            logging.error(f"[csv] {pos.ticker}: ошибка записи — повтор на следующем цикле: {e}")
-            continue
-
-        try:
-            research_logger.log_event("CLOSED", {
-                "trade_id": trade_id, "ticker": pos.ticker, "figi": pos.figi,
-                "entry_price": pos.entry_price, "exit_price": exit_price,
-                "executed_lots": executed_lots, "lot_size": pos.lot_size,
-                "gross_pnl": gross_pnl,
-                "entry_commission": entry_commission,
-                "exit_commission": exit_commission,
-                "commission_source": commission_source,
-                "slippage": total_slippage, "slippage_percent": slippage_percent,
-                "net_pnl": net_pnl, "cumulative_net_pnl": cumulative_after,
-                "exit_reason": pos.close_reason or "",
-            })
-        except Exception as e:
-            logging.warning(f"[jsonl] {pos.ticker}: не удалось записать CLOSED: {e}")
-
-        logging.info(
-            f"✅ [CLOSED] {pos.ticker} {pos.close_reason} "
-            f"entry={pos.entry_price:.4f} exit={exit_price:.4f} "
-            f"lots={executed_lots} gross={gross_pnl:+.2f}₽ "
-            f"comm_in=-{entry_commission:.2f}₽ comm_out=-{exit_commission:.2f}₽ ({commission_source}) "
-            f"slippage={total_slippage:+.2f}₽ ({slippage_percent:+.3f}%) "
-            f"net={net_pnl:+.2f}₽ cum={cumulative_after:+.2f}₽"
-        )
-        await notify(
-            f"🔒 <b>{pos.ticker}</b> закрыто по {pos.close_reason}\n"
-            f"Вход: {pos.entry_price:.4f} → Выход: {exit_price:.4f}\n"
-            f"Лотов: {executed_lots} (акций: {shares})\n"
-            f"Gross: {gross_pnl:+.2f} ₽\n"
-            f"Комиссия: вход {entry_commission:.2f} ₽ + выход {exit_commission:.2f} ₽ ({commission_source})\n"
-            f"Slippage: {total_slippage:+.2f} ₽ ({slippage_percent:+.3f}%)\n"
-            f"Net: <b>{net_pnl:+.2f} ₽</b>\n"
-            f"Итого: {cumulative_after:+.2f} ₽"
-        )
+            logging.info(
+                f"✅ [CLOSED] {pos.ticker} {pos.close_reason} "
+                f"entry={pos.entry_price:.4f} exit={exit_price:.4f} "
+                f"lots={executed_lots} gross={gross_pnl:+.2f}₽ "
+                f"comm_in=-{entry_commission:.2f}₽ comm_out=-{exit_commission:.2f}₽ ({commission_source}) "
+                f"slippage={total_slippage:+.2f}₽ ({slippage_percent:+.3f}%) "
+                f"net={net_pnl:+.2f}₽ cum={cumulative_after:+.2f}₽"
+            )
+            try:
+                research_logger.log_event("CLOSED", {
+                    "trade_id": trade_id, "ticker": pos.ticker, "figi": pos.figi,
+                    "entry_price": pos.entry_price, "exit_price": exit_price,
+                    "executed_lots": executed_lots, "lot_size": pos.lot_size,
+                    "gross_pnl": gross_pnl,
+                    "entry_commission": entry_commission,
+                    "exit_commission": exit_commission,
+                    "commission_source": commission_source,
+                    "slippage": total_slippage, "slippage_percent": slippage_percent,
+                    "net_pnl": net_pnl, "cumulative_net_pnl": cumulative_after,
+                    "exit_reason": pos.close_reason or "",
+                })
+            except Exception as e:
+                logging.warning(f"[jsonl] {pos.ticker}: не удалось записать CLOSED: {e}")
+            await notify(
+                f"🔒 <b>{pos.ticker}</b> закрыто по {pos.close_reason}\n"
+                f"Вход: {pos.entry_price:.4f} → Выход: {exit_price:.4f}\n"
+                f"Лотов: {executed_lots} (акций: {shares})\n"
+                f"Gross: {gross_pnl:+.2f} ₽\n"
+                f"Комиссия: вход {entry_commission:.2f} ₽ + выход {exit_commission:.2f} ₽ ({commission_source})\n"
+                f"Slippage: {total_slippage:+.2f} ₽ ({slippage_percent:+.3f}%)\n"
+                f"Net: <b>{net_pnl:+.2f} ₽</b>\n"
+                f"Итого: {cumulative_after:+.2f} ₽"
+            )
+        else:
+            logging.error(f"[csv] {pos.ticker}: log_trade вернул False — повтор на следующем цикле.")
 
 
 async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyManager, monitor: ExecutionMonitor):
@@ -417,7 +419,12 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
         logging.warning("[cycle] reconcile не завершён.")
         return
 
+    # ПОВТОРНАЯ проверка достоверности непосредственно перед входом
     positions = await client.get_positions()
+    if positions is None:
+        logging.error("[cycle] Портфель недостоверен перед входом — новые входы запрещены.")
+        client.uncertain_state = True
+        return
 
     for inst in top_instruments:
         figi = inst['figi']
@@ -509,10 +516,12 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
                         pos.execution_price = exec_price
                         pos.executed_lots = le
                         pos.partial = True
+                        pos.entry_order_id = order_id
                         pos.entry_actual_commission = ExecutionMonitor._extract_commission(state)
                         logging.warning(
                             f"⚠️ [PARTIAL] {inst['ticker']}: зарегистрировано {le} лот. "
-                            f"@ {exec_price:.4f} (частичное исполнение, UNCERTAIN)"
+                            f"@ {exec_price:.4f} (частичное исполнение, UNCERTAIN, "
+                            f"entry_order_id={order_id})"
                         )
             continue
 
@@ -552,6 +561,7 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
         pos.execution_price = exec_price
         pos.executed_lots = exec_lots
         pos.entry_actual_commission = entry_commission
+        pos.entry_order_id = order_id
 
         logging.info(
             f"🚀 [BUY] {inst['ticker']} {exec_lots} лот. @ {exec_price:.4f} "
@@ -587,15 +597,16 @@ async def main():
                 {'start_trading': start_trading, 'stop_trading': stop_trading, 'get_status': get_status},
             )
             await asyncio.wait_for(telegram_bot.application.initialize(), timeout=15.0)
+            await asyncio.wait_for(telegram_bot.application.start(), timeout=15.0)   # ← ОБЯЗАТЕЛЬНО
             await asyncio.wait_for(telegram_bot.application.updater.start_polling(), timeout=15.0)
             await telegram_bot.register_commands()
-            logging.info("Telegram-бот запущен.")
+            logging.info("Telegram-бот запущен (initialize → start → polling → commands).")
             await notify("🤖 Tsclp_v2.1_volatile запущен. Управление — через trading.flag.")
         except Exception as e:
             logging.warning(f"Telegram недоступен ({e}). Робот работает БЕЗ уведомлений.")
-            telegram_bot = None
+            await _stop_telegram_bot()
         asyncio.create_task(_telegram_watchdog())
-        logging.info("[tg-watchdog] Сторож запущен (проверка каждые 60 сек, перезапуск polling каждые 5 мин).")
+        logging.info("[tg-watchdog] Сторож запущен (60 сек, полный перезапуск при падении).")
 
     async with TinkoffClient(config.TINKOFF_API_TOKEN, config.USE_SANDBOX) as client:
         main_client = client

@@ -1,12 +1,8 @@
 # tinkoff_client.py
 # Tsclp_v2.1_volatile — клиент T-Invest API (ТОЛЬКО ПЕСОЧНИЦА).
-#
-# ИСПРАВЛЕНИЕ: добавлен get_sandbox_order_state() для фактической цены исполнения.
-# Парсинг OrderState: lots_executed, executed_order_price.
-#
-# ДИАГНОСТИКА: добавлен get_positions_debug() — сырые quantity/quantity_lots.
-#              НЕ используется в торговой логике.
-# БЕЗОПАСНОСТЬ: сохранён self.use_sandbox (контракт).
+# ИЗМЕНЕНО: get_positions() возвращает None при ошибке (fail-closed),
+#           {} — только при успешном пустом портфеле.
+# get_positions_debug() — диагностика (не трогаю).
 
 import asyncio
 import logging
@@ -40,7 +36,7 @@ class TinkoffClient:
         if not use_sandbox:
             raise SandboxRequiredError("Tsclp_v2.1_volatile работает ТОЛЬКО в песочнице.")
         self.token = token
-        self.use_sandbox = use_sandbox  # контракт безопасности (для тестов)
+        self.use_sandbox = use_sandbox
         self._sandbox_client = None
         self.client = None
         self.account_id: Optional[str] = None
@@ -148,7 +144,11 @@ class TinkoffClient:
             logging.error(f"Ошибка баланса: {e}")
             return 0.0
 
-    async def get_positions(self):
+    async def get_positions(self) -> Optional[dict]:
+        """
+        Fail-closed: None при ошибке API (состояние НЕИЗВЕСТНО),
+        {} — только при успешном ответе с пустым портфелем.
+        """
         try:
             portfolio = await self.client.sandbox.get_sandbox_portfolio(account_id=self.account_id)
             result = {}
@@ -158,16 +158,12 @@ class TinkoffClient:
                     result[pos.figi] = qty
             return result
         except Exception as e:
-            logging.error(f"Ошибка позиций: {e}")
+            logging.error(f"Ошибка позиций (состояние неизвестно): {e}")
             self.uncertain_state = True
-            return {}
+            return None
 
     async def get_positions_debug(self):
-        """
-        ДИАГНОСТИКА (не используется в торговой логике).
-        Возвращает сырые поля quantity и quantity_lots по каждой позиции.
-        Нужно для ручной проверки единиц: штуки или лоты.
-        """
+        """ДИАГНОСТИКА — не используется в торговой логике."""
         try:
             portfolio = await self.client.sandbox.get_sandbox_portfolio(account_id=self.account_id)
             result = []
@@ -213,7 +209,6 @@ class TinkoffClient:
             return None
 
     async def get_sandbox_order_state(self, order_id: str):
-        """Получает статус заявки по order_id. Для фактической цены исполнения."""
         try:
             return await self.client.sandbox.get_sandbox_order_state(
                 account_id=self.account_id, order_id=order_id,

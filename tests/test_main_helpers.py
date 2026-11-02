@@ -11,8 +11,6 @@ import logger as research_logger
 from execution import ExecutionMonitor, PositionState
 
 
-# --- Моки ---
-
 class FakeClient:
     def __init__(self, positions=None):
         self.positions = positions if positions is not None else {}
@@ -123,6 +121,18 @@ async def test_reconcile_does_not_duplicate_local(monkeypatch):
     assert len(mon.positions) == n_before
 
 
+@pytest.mark.asyncio
+async def test_reconcile_positions_none_keeps_uncertain():
+    """get_positions() = None (ошибка API) → uncertain_state не снимается."""
+    class ClientNone:
+        uncertain_state = True
+        async def get_positions(self):
+            return None
+    mon = ExecutionMonitor(ClientNone())
+    await main.reconcile(ClientNone(), mon)
+    assert ClientNone.uncertain_state is True
+
+
 # --- process_closing ---
 
 def _setup_closed_pos(mon, actual_commission=None, entry_actual_commission=None,
@@ -196,8 +206,8 @@ async def test_process_closing_actual_commission(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_closing_mixed_commission_is_model(monkeypatch, tmp_path):
-    """Только выход фактический, вход модельный → commission_source = model (смешанный)."""
+async def test_process_closing_mixed_commission_is_mixed(monkeypatch, tmp_path):
+    """Только выход фактический, вход модельный → commission_source = mixed (ТЗ п.8)."""
     csv_path = tmp_path / "trades.csv"
     monkeypatch.setattr(research_logger, "TRADES_FILE", str(csv_path))
     monkeypatch.setattr(research_logger, "EVENTS_FILE", str(tmp_path / "events.jsonl"))
@@ -209,7 +219,7 @@ async def test_process_closing_mixed_commission_is_model(monkeypatch, tmp_path):
     await main.process_closing(client, mon)
     row = _read_last_trade(csv_path)
     assert row is not None
-    assert row["commission_source"] == "model"
+    assert row["commission_source"] == "mixed"
     assert float(row["actual_commission_rub"]) == pytest.approx(0.5)
     assert float(row["exit_commission_rub"]) == pytest.approx(0.5)
 
@@ -243,9 +253,6 @@ async def test_process_closing_slippage_percent(monkeypatch, tmp_path):
 
     client = FakeClient()
     mon = ExecutionMonitor(client)
-    # Вход: price_before_order=99, entry=100 → slippage входа = (100-99)*10 = +10
-    # Выход: close_before=106, exit=105 → slippage выхода = (106-105)*10 = +10
-    # total_slippage = +20, turnover = (100+105)*10 = 2050, percent = 20/2050*100 ≈ 0.976
     pos = _setup_closed_pos(
         mon, qty=10, lot=1,
         entry_price=100.0, exit_price=105.0,
@@ -270,7 +277,6 @@ async def test_process_closing_cumulative_net_pnl(monkeypatch, tmp_path):
     client = FakeClient()
     mon = ExecutionMonitor(client)
 
-    # Сделка 1: net = +576.80 - 10 = +566.80 (приблизительно)
     pos1 = _setup_closed_pos(mon, qty=100, lot=1, entry_price=100.0, exit_price=106.0,
                              actual_commission=10.0, entry_actual_commission=0.0)
     pos1.trade_id = "cum-1"
@@ -278,7 +284,6 @@ async def test_process_closing_cumulative_net_pnl(monkeypatch, tmp_path):
     mon.positions["FIGI-1"] = pos1
     await main.process_closing(client, mon)
 
-    # Сделка 2: net = -240 - 10 = -250 (приблизительно)
     mon.positions.clear()
     pos2 = _setup_closed_pos(mon, qty=100, lot=1, entry_price=100.0, exit_price=97.6,
                              actual_commission=10.0, entry_actual_commission=0.0)

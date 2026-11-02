@@ -1,12 +1,7 @@
 # execution.py
 # Tsclp_v2.1_volatile — мониторинг позиций.
-# resolve_closing: статус "1" (Fill).
-# _extract_price: деление на lots_executed.
-# ДОБАВЛЕНО: close_price_before_order для расчёта slippage на выходе.
-# ДОБАВЛЕНО: logged (защита CSV от повторной записи/потери).
-# ДОБАВЛЕНО: actual_commission — фактическая комиссия из OrderState (если есть).
-# ДОБАВЛЕНО: entry_actual_commission — фактическая комиссия входа.
-# ИСПРАВЛЕНО: _extract_commission применяет abs() ДО проверки на ноль.
+# ИЗМЕНЕНО: TrackedPosition: + entry_order_id (для сверки partial fill).
+#           Остальное — без изменений.
 
 import logging
 from dataclasses import dataclass
@@ -49,6 +44,7 @@ class TrackedPosition:
     logged: bool = False
     actual_commission: Optional[float] = None
     entry_actual_commission: Optional[float] = None
+    entry_order_id: Optional[str] = None  # ID исходной заявки на покупку
 
 
 class ExecutionMonitor:
