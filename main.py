@@ -5,6 +5,9 @@
 #           logged; фактическая комиссия (вход+выход) раздельно;
 #           slippage_percent; cumulative_net_pnl_rub;
 #           Telegram watchdog восстанавливает бота, даже если старт был без него.
+# ИЗМЕНЕНО: register_commands() — команды /start, /stop, /status в меню Telegram.
+# ИЗМЕНЕНО: watchdog принудительно перезапускает polling каждые 5 минут.
+# ИСПРАВЛЕНО: global telegram_bot в _telegram_watchdog (UnboundLocalError).
 
 import asyncio
 import csv
@@ -47,6 +50,8 @@ telegram_bot = None
 main_client = None
 reconcile_done = False
 monitor_ref = None
+
+POLLING_RESTART_INTERVAL_SECONDS = 300
 
 
 def is_trading_enabled() -> bool:
@@ -104,10 +109,6 @@ async def notify(text: str):
 
 
 async def _try_create_telegram_bot() -> bool:
-    """
-    Пытается создать TelegramBot с нуля. Возвращает True при успехе.
-    Используется в watchdog, если на старте бот не создался.
-    """
     global telegram_bot
     if not (config.ENABLE_TELEGRAM and TelegramBot):
         return False
@@ -119,6 +120,7 @@ async def _try_create_telegram_bot() -> bool:
         )
         await asyncio.wait_for(bot.application.initialize(), timeout=15.0)
         await asyncio.wait_for(bot.application.updater.start_polling(), timeout=15.0)
+        await bot.register_commands()
         telegram_bot = bot
         logging.info("[tg-watchdog] Telegram-бот создан и запущен.")
         await notify("🤖 Tsclp_v2.1_volatile: Telegram восстановлен.")
@@ -129,21 +131,43 @@ async def _try_create_telegram_bot() -> bool:
         return False
 
 
+async def _restart_polling(bot) -> bool:
+    try:
+        try:
+            await asyncio.wait_for(bot.application.updater.stop(), timeout=15.0)
+        except Exception as stop_err:
+            logging.warning(f"[tg-watchdog] updater.stop() не удался: {stop_err}")
+        await asyncio.wait_for(bot.application.updater.start_polling(), timeout=15.0)
+        logging.info("[tg-watchdog] Polling принудительно перезапущен.")
+        return True
+    except Exception as e:
+        logging.error(f"[tg-watchdog] Не удалось перезапустить polling: {e}")
+        return False
+
+
 async def _telegram_watchdog():
-    """
-    Работает ВСЕГДА (если ENABLE_TELEGRAM), даже если telegram_bot is None.
-    Каждые 60 сек:
-      - если бота нет — пытается создать;
-      - если бот есть — проверяет get_me; при 3 неудачах — перезапускает polling.
-    """
+    global telegram_bot
     if not (config.ENABLE_TELEGRAM and TelegramBot):
         return
     failures = 0
+    last_restart = datetime.now(timezone.utc)
     while True:
         await asyncio.sleep(60)
         if telegram_bot is None:
             await _try_create_telegram_bot()
+            last_restart = datetime.now(timezone.utc)
             continue
+
+        now = datetime.now(timezone.utc)
+        if (now - last_restart).total_seconds() >= POLLING_RESTART_INTERVAL_SECONDS:
+            if await _restart_polling(telegram_bot):
+                last_restart = now
+                failures = 0
+                continue
+            else:
+                telegram_bot = None
+                continue
+
         try:
             await asyncio.wait_for(telegram_bot.application.bot.get_me(), timeout=15.0)
             if failures > 0:
@@ -154,18 +178,10 @@ async def _telegram_watchdog():
             logging.warning(f"[tg-watchdog] Telegram недоступен ({failures}/3): {e}")
             if failures >= 3:
                 logging.info("[tg-watchdog] Пробую перезапустить polling...")
-                try:
-                    try:
-                        await asyncio.wait_for(telegram_bot.application.updater.stop(), timeout=15.0)
-                    except Exception as stop_err:
-                        logging.warning(f"[tg-watchdog] updater.stop() не удался: {stop_err}")
-                    await asyncio.wait_for(
-                        telegram_bot.application.updater.start_polling(), timeout=15.0
-                    )
-                    logging.info("[tg-watchdog] Polling перезапущен.")
+                if await _restart_polling(telegram_bot):
+                    last_restart = datetime.now(timezone.utc)
                     failures = 0
-                except Exception as restart_err:
-                    logging.error(f"[tg-watchdog] Перезапуск не удался: {restart_err}")
+                else:
                     telegram_bot = None
 
 
@@ -280,9 +296,7 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
         turnover = (exit_price + pos.entry_price) * shares
         model_total_commission = abs(turnover * config.COMMISSION_PER_SIDE)
 
-        # Комиссия входа / выхода раздельно
         if pos.actual_commission is not None:
-            # Фактическая комиссия выхода из API (по закрывающей заявке)
             exit_commission = pos.actual_commission
         else:
             exit_commission = model_total_commission / 2.0
@@ -294,18 +308,14 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
 
         total_commission = entry_commission + exit_commission
 
-        # commission_source: actual, если обе части фактические; иначе model (смешанный = model)
         if pos.actual_commission is not None and pos.entry_actual_commission is not None:
             commission_source = "actual"
         else:
             commission_source = "model"
 
         net_pnl = gross_pnl - total_commission
-
-        # slippage в % от оборота
         slippage_percent = (total_slippage / turnover * 100.0) if turnover > 0 else 0.0
 
-        # cumulative net pnl (сумма всех предыдущих + текущий)
         cumulative_before = research_logger.get_cumulative_net_pnl()
         cumulative_after = cumulative_before + net_pnl
 
@@ -578,14 +588,14 @@ async def main():
             )
             await asyncio.wait_for(telegram_bot.application.initialize(), timeout=15.0)
             await asyncio.wait_for(telegram_bot.application.updater.start_polling(), timeout=15.0)
+            await telegram_bot.register_commands()
             logging.info("Telegram-бот запущен.")
             await notify("🤖 Tsclp_v2.1_volatile запущен. Управление — через trading.flag.")
         except Exception as e:
             logging.warning(f"Telegram недоступен ({e}). Робот работает БЕЗ уведомлений.")
             telegram_bot = None
-        # Watchdog запускается ВСЕГДА (если ENABLE_TELEGRAM), даже если бот не создался.
         asyncio.create_task(_telegram_watchdog())
-        logging.info("[tg-watchdog] Сторож запущен (проверка каждые 60 сек, восстановление при падении).")
+        logging.info("[tg-watchdog] Сторож запущен (проверка каждые 60 сек, перезапуск polling каждые 5 мин).")
 
     async with TinkoffClient(config.TINKOFF_API_TOKEN, config.USE_SANDBOX) as client:
         main_client = client
