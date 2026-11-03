@@ -3,6 +3,7 @@
 #
 # ИЗМЕНЕНО (ТЗ): Telegram lifecycle (start/stop/shutdown); fail-closed reconcile;
 #                mixed commission_source; log_trade bool; entry_order_id.
+# ДИАГНОСТИКА: в двух except добавлен type(e).__name__ (видно тип исключения).
 # Стратегия, скринер, CONSERVATIVE, POSITION_QUANTITY_IS_LOTS — НЕ менялись.
 
 import asyncio
@@ -138,16 +139,16 @@ async def _try_create_telegram_bot() -> bool:
             config.TELEGRAM_ALLOWED_USER_ID,
             {'start_trading': start_trading, 'stop_trading': stop_trading, 'get_status': get_status},
         )
-        await asyncio.wait_for(bot.application.initialize(), timeout=15.0)
-        await asyncio.wait_for(bot.application.start(), timeout=15.0)          # ← ОБЯЗАТЕЛЬНО
-        await asyncio.wait_for(bot.application.updater.start_polling(), timeout=15.0)
+        await asyncio.wait_for(bot.application.initialize(), timeout=20.0)
+        await asyncio.wait_for(bot.application.start(), timeout=20.0)
+        await asyncio.wait_for(bot.application.updater.start_polling(), timeout=20.0)
         await bot.register_commands()
         telegram_bot = bot
         logging.info("[tg] Telegram-бот создан и запущен (initialize → start → polling).")
         await notify("🤖 Tsclp_v2.1_volatile: Telegram восстановлен.")
         return True
     except Exception as e:
-        logging.warning(f"[tg] Не удалось создать Telegram-бот: {e}")
+        logging.warning(f"[tg] Не удалось создать Telegram-бот: {type(e).__name__}: {e!r}")
         await _stop_telegram_bot()
         return False
 
@@ -168,7 +169,7 @@ async def _telegram_watchdog():
             failures = 0
         except Exception as e:
             failures += 1
-            logging.warning(f"[tg-watchdog] Telegram недоступен ({failures}/3): {e}")
+            logging.warning(f"[tg-watchdog] Telegram недоступен ({failures}/3): {type(e).__name__}: {e!r}")
             if failures >= 3:
                 logging.info("[tg-watchdog] Полный перезапуск Telegram...")
                 await _stop_telegram_bot()
@@ -200,7 +201,6 @@ async def reconcile(client: TinkoffClient, monitor: ExecutionMonitor):
     global reconcile_done
     positions = await client.get_positions()
 
-    # КЛЮЧЕВОЕ: None = ошибка API, состояние неизвестно.
     if positions is None:
         logging.error("[reconcile] Ошибка получения портфеля — состояние неизвестно, сверка не завершена.")
         client.uncertain_state = True
@@ -293,7 +293,6 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
         turnover = (exit_price + pos.entry_price) * shares
         model_total_commission = abs(turnover * config.COMMISSION_PER_SIDE)
 
-        # Раздельные комиссии
         if pos.actual_commission is not None:
             exit_commission = pos.actual_commission
         else:
@@ -306,7 +305,6 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
 
         total_commission = entry_commission + exit_commission
 
-        # commission_source: actual / mixed / model
         entry_actual = pos.entry_actual_commission is not None
         exit_actual = pos.actual_commission is not None
         if entry_actual and exit_actual:
@@ -352,7 +350,6 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
             "error_note": "",
         }
 
-        # КЛЮЧЕВОЕ: logged = True ТОЛЬКО если log_trade вернул True
         if research_logger.log_trade(trade_row):
             pos.logged = True
             logging.info(
@@ -419,7 +416,6 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
         logging.warning("[cycle] reconcile не завершён.")
         return
 
-    # ПОВТОРНАЯ проверка достоверности непосредственно перед входом
     positions = await client.get_positions()
     if positions is None:
         logging.error("[cycle] Портфель недостоверен перед входом — новые входы запрещены.")
@@ -596,14 +592,17 @@ async def main():
                 config.TELEGRAM_ALLOWED_USER_ID,
                 {'start_trading': start_trading, 'stop_trading': stop_trading, 'get_status': get_status},
             )
-            await asyncio.wait_for(telegram_bot.application.initialize(), timeout=15.0)
-            await asyncio.wait_for(telegram_bot.application.start(), timeout=15.0)   # ← ОБЯЗАТЕЛЬНО
-            await asyncio.wait_for(telegram_bot.application.updater.start_polling(), timeout=15.0)
+            await asyncio.wait_for(telegram_bot.application.initialize(), timeout=20.0)
+            await asyncio.wait_for(telegram_bot.application.start(), timeout=20.0)
+            await asyncio.wait_for(telegram_bot.application.updater.start_polling(), timeout=20.0)
             await telegram_bot.register_commands()
             logging.info("Telegram-бот запущен (initialize → start → polling → commands).")
             await notify("🤖 Tsclp_v2.1_volatile запущен. Управление — через trading.flag.")
         except Exception as e:
-            logging.warning(f"Telegram недоступен ({e}). Робот работает БЕЗ уведомлений.")
+            logging.warning(
+                f"Telegram недоступен ({type(e).__name__}: {e!r}). "
+                f"Робот работает БЕЗ уведомлений."
+            )
             await _stop_telegram_bot()
         asyncio.create_task(_telegram_watchdog())
         logging.info("[tg-watchdog] Сторож запущен (60 сек, полный перезапуск при падении).")
