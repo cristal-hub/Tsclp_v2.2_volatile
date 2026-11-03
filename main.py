@@ -1,10 +1,19 @@
+
 # main.py
 # Tsclp_v2.1_volatile — основной цикл (ТОЛЬКО ПЕСОЧНИЦА).
 #
-# ИЗМЕНЕНО (ТЗ): Telegram lifecycle (start/stop/shutdown); fail-closed reconcile;
-#                mixed commission_source; log_trade bool; entry_order_id.
-# ДИАГНОСТИКА: в двух except добавлен type(e).__name__ (видно тип исключения).
-# Стратегия, скринер, CONSERVATIVE, POSITION_QUANTITY_IS_LOTS — НЕ менялись.
+# ДИАГНОСТИКА:
+# - STRATEGY_HOLD: запись причин HOLD в research_events.jsonl.
+# - STRATEGY_SELL_IGNORED: запись SELL без позиции (шорт запрещён).
+# - Дедупликация событий по тикеру, типу события и времени свечи.
+#
+# Стратегия, скринер, CONSERVATIVE, риск-менеджмент,
+# POSITION_QUANTITY_IS_LOTS и исполнение заявок не изменены.
+#
+# RESEARCH ONLY
+# ONLY T-INVEST SANDBOX
+# NO LIVE ORDERS
+# NO REAL MONEY
 
 import asyncio
 import csv
@@ -47,6 +56,10 @@ telegram_bot = None
 main_client = None
 reconcile_done = False
 monitor_ref = None
+
+# Защита от повторной записи одного события по одной свече.
+# Сбрасывается при перезапуске программы.
+_strategy_event_keys = set()
 
 
 def is_trading_enabled() -> bool:
@@ -191,6 +204,101 @@ def _trade_id_already_logged(trade_id: str) -> bool:
     except Exception as e:
         logging.warning(f"[csv] Не удалось проверить trade_id {trade_id}: {e}")
         return True
+
+
+def _timestamp_for_log(value):
+    """Преобразует временную метку в JSON-совместимую строку."""
+    if value is None:
+        return None
+
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            pass
+
+    return str(value)
+
+
+def _log_strategy_diagnostic(
+    event_type: str,
+    ticker: str,
+    figi: str,
+    signal: str,
+    reason: str,
+    sm: StrategyManager,
+    df: pd.DataFrame,
+    price: float,
+):
+    """
+    Записывает диагностическое событие стратегии в JSONL.
+
+    Дедупликация: один event_type на тикер и время сигнальной свечи.
+    Если запись не удалась, ключ не сохраняется — следующая итерация
+    сможет повторить попытку.
+    """
+    try:
+        candle_time = getattr(sm, "last_signal_candle_time", None)
+
+        if candle_time is None and df is not None and not df.empty:
+            candle_time = df.index[-1]
+
+        candle_time_text = _timestamp_for_log(candle_time)
+
+        if candle_time_text is None:
+            candle_time_text = "UNKNOWN"
+
+        event_key = (event_type, ticker, candle_time_text)
+
+        if event_key in _strategy_event_keys:
+            return
+
+        last_close = None
+        last_volume = None
+
+        if df is not None and not df.empty:
+            if "close" in df.columns:
+                value = df["close"].iloc[-1]
+                if pd.notna(value):
+                    last_close = float(value)
+
+            if "volume" in df.columns:
+                value = df["volume"].iloc[-1]
+                if pd.notna(value):
+                    last_volume = float(value)
+
+        adx_value = getattr(sm, "last_adx_value", None)
+
+        if adx_value is not None:
+            try:
+                adx_value = float(adx_value)
+            except (TypeError, ValueError):
+                adx_value = None
+
+        payload = {
+            "ticker": ticker,
+            "figi": figi,
+            "signal": signal,
+            "reason": reason,
+            "signal_candle_time": candle_time_text,
+            "candles_count": int(len(df)) if df is not None else 0,
+            "regime": getattr(sm, "_last_regime", None),
+            "regime_candidate": getattr(sm, "_last_regime_candidate", None),
+            "regime_streak": getattr(sm, "_regime_streak", None),
+            "adx": adx_value,
+            "price": float(price),
+            "last_close": last_close,
+            "last_volume": last_volume,
+        }
+
+        if research_logger.log_event(event_type, payload):
+            _strategy_event_keys.add(event_key)
+
+    except Exception as e:
+        logging.warning(
+            f"[strategy-log] Не удалось записать {event_type} "
+            f"для {ticker}: {type(e).__name__}: {e}"
+        )
 
 
 async def reconcile(client: TinkoffClient, monitor: ExecutionMonitor):
@@ -452,11 +560,33 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
         df = df.set_index('time').sort_index()
 
         signal, reason = sm.get_signal(df, float(price), drop_incomplete=True)
+
         if signal == "HOLD":
             logging.info(f"{inst['ticker']}: HOLD ({reason})")
+            _log_strategy_diagnostic(
+                event_type="STRATEGY_HOLD",
+                ticker=inst['ticker'],
+                figi=figi,
+                signal=signal,
+                reason=reason,
+                sm=sm,
+                df=df,
+                price=float(price),
+            )
             continue
+
         if signal == "SELL":
             logging.info(f"{inst['ticker']}: SELL без позиции — шорт запрещён")
+            _log_strategy_diagnostic(
+                event_type="STRATEGY_SELL_IGNORED",
+                ticker=inst['ticker'],
+                figi=figi,
+                signal=signal,
+                reason=reason,
+                sm=sm,
+                df=df,
+                price=float(price),
+            )
             continue
 
         lots = await rm.calculate_position_size(figi, float(price), df)
