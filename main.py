@@ -1,8 +1,10 @@
 # main.py
 # Tsclp_v2.1_volatile — основной цикл (ТОЛЬКО ПЕСОЧНИЦА).
 #
-# DIAGNOSTIC FIX ONLY: _track_price_state получает только фактически
-#                      запрошенные FIGI (из figi_to_monitor), а не все TOP-10.
+# DIAGNOSTIC FIX ONLY: _track_price_state получает ВСЕ фактические
+#                      запрошенные FIGI (из figi_to_monitor).
+#                      Если тикер неизвестен (позиция вне TOP-10) —
+#                      используется сам FIGI как обозначение.
 #                      Торговая логика и состав запросов цен НЕ менялись.
 # ИЗМЕНЕНО (ТЗ): Telegram lifecycle; fail-closed reconcile; mixed; log_trade bool.
 # Стратегия, скринер, CONSERVATIVE, POSITION_QUANTITY_IS_LOTS — НЕ менялись.
@@ -454,9 +456,11 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
     figi_to_monitor = list(monitor.positions.keys()) or [i['figi'] for i in top_instruments]
     prices = await client.get_last_prices(figi_to_monitor)
 
-    # ДИАГНОСТИКА: отслеживаем ТОЛЬКО фактически запрошенные FIGI.
-    # tickers_by_figi строится из figi_to_monitor (а не из всех top_instruments).
-    tickers_by_figi = {i['figi']: i['ticker'] for i in top_instruments if i['figi'] in figi_to_monitor}
+    # ДИАГНОСТИКА: тикеры для ВСЕХ фактически запрошенных FIGI.
+    # Если FIGI нет в top_instruments (например, позиция вне TOP-10) —
+    # используем сам FIGI как обозначение.
+    _ticker_by_figi_map = {i['figi']: i['ticker'] for i in top_instruments}
+    tickers_by_figi = {figi: _ticker_by_figi_map.get(figi, figi) for figi in figi_to_monitor}
     _track_price_state(prices, tickers_by_figi)
 
     if not prices:
