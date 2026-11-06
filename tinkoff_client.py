@@ -1,13 +1,19 @@
 # tinkoff_client.py
 # Tsclp_v2.1_volatile — клиент T-Invest API (ТОЛЬКО ПЕСОЧНИЦА).
-# ИЗМЕНЕНО: get_positions() возвращает None при ошибке (fail-closed),
-#           {} — только при успешном пустом портфеле.
+#
+# ДИАГНОСТИКА: get_last_prices() пишет в logs/price_monitor.log сырой ответ API
+#              (FIGI запрошены / получены / price=None / price=0 / отсутствуют).
+#              Результат функции (dict) НЕ меняется — торговая логика как раньше.
+#              Ошибка записи лога не останавливает робота.
+#
+# ИЗМЕНЕНО: get_positions() возвращает None при ошибке (fail-closed).
 # get_positions_debug() — диагностика (не трогаю).
 
 import asyncio
 import logging
+import os
 import uuid
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from t_tech.invest import (
@@ -25,6 +31,22 @@ from t_tech.invest.utils import now, quotation_to_decimal, decimal_to_quotation
 import config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# --- Диагностический лог цен ---
+PRICE_MONITOR_DIR = "logs"
+PRICE_MONITOR_FILE = os.path.join(PRICE_MONITOR_DIR, "price_monitor.log")
+
+
+def _price_monitor_write(lines: list) -> None:
+    """Пишет блок строк в logs/price_monitor.log (append). Не падает при ошибке."""
+    try:
+        os.makedirs(PRICE_MONITOR_DIR, exist_ok=True)
+        with open(PRICE_MONITOR_FILE, "a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
+            f.write("\n")
+    except Exception as e:
+        logging.warning(f"[price_monitor] Не удалось записать лог: {e}")
 
 
 class SandboxRequiredError(RuntimeError):
@@ -104,15 +126,72 @@ class TinkoffClient:
             return []
 
     async def get_last_prices(self, figi_list):
+        """
+        Получает последние цены. ДИАГНОСТИКА: пишет в logs/price_monitor.log
+        сырой ответ API. Результат (dict) НЕ меняется.
+        """
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        requested = list(figi_list)
         try:
             await asyncio.sleep(config.API_CALL_DELAY_SECONDS)
-            response = await self.client.market_data.get_last_prices(figi=figi_list)
+            response = await self.client.market_data.get_last_prices(figi=requested)
+
+            # --- ДИАГНОСТИКА: разбираем сырой ответ ДО преобразования в dict ---
+            raw_items = list(getattr(response, "last_prices", []) or [])
+            returned_figis = []
+            none_figis = []
+            zero_figis = []
+            valid_prices = {}
+            for p in raw_items:
+                pfigi = getattr(p, "figi", None)
+                if pfigi is None:
+                    continue
+                returned_figis.append(pfigi)
+                price = getattr(p, "price", None)
+                if price is None:
+                    none_figis.append(pfigi)
+                    continue
+                try:
+                    val = float(quotation_to_decimal(price))
+                except Exception:
+                    none_figis.append(pfigi)
+                    continue
+                if val == 0.0:
+                    zero_figis.append(pfigi)
+                else:
+                    valid_prices[pfigi] = val
+
+            missing = [f for f in requested if f not in returned_figis]
+
+            lines = [
+                f"[{ts}] PRICE_CHECK",
+                f"Requested: {len(requested)}",
+                f"Returned: {len(returned_figis)}",
+                f"Valid prices: {len(valid_prices)}",
+                f"Missing FIGI: {len(missing)}",
+            ]
+            if missing:
+                lines.append(f"Missing list: {', '.join(missing)}")
+            if none_figis:
+                lines.append(f"Price=None FIGI: {', '.join(none_figis)}")
+            if zero_figis:
+                lines.append(f"Price=0 FIGI: {', '.join(zero_figis)}")
+            if not missing and not none_figis and not zero_figis:
+                lines.append("Status: OK (all requested FIGI have valid prices)")
+            _price_monitor_write(lines)
+
+            # --- РЕЗУЛЬТАТ (как раньше) ---
             return {
                 p.figi: float(quotation_to_decimal(p.price))
-                for p in response.last_prices if p.price is not None
+                for p in raw_items if getattr(p, "price", None) is not None
             }
         except Exception as e:
             logging.error(f"Ошибка цен: {e}")
+            _price_monitor_write([
+                f"[{ts}] PRICE_CHECK_ERROR",
+                f"Requested: {len(requested)}",
+                f"Exception: {type(e).__name__}: {e!r}",
+            ])
             return {}
 
     async def get_instrument_info(self, figi):

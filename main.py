@@ -1,19 +1,11 @@
-
 # main.py
 # Tsclp_v2.1_volatile — основной цикл (ТОЛЬКО ПЕСОЧНИЦА).
 #
-# ДИАГНОСТИКА:
-# - STRATEGY_HOLD: запись причин HOLD в research_events.jsonl.
-# - STRATEGY_SELL_IGNORED: запись SELL без позиции (шорт запрещён).
-# - Дедупликация событий по тикеру, типу события и времени свечи.
-#
-# Стратегия, скринер, CONSERVATIVE, риск-менеджмент,
-# POSITION_QUANTITY_IS_LOTS и исполнение заявок не изменены.
-#
-# RESEARCH ONLY
-# ONLY T-INVEST SANDBOX
-# NO LIVE ORDERS
-# NO REAL MONEY
+# ДИАГНОСТИКА: отслеживание PRICE_LOSS_STARTED / PRICE_RECOVERED
+#              в logs/price_monitor.log (через _track_price_state).
+#              Торговая логика не меняется.
+# ИЗМЕНЕНО (ТЗ): Telegram lifecycle; fail-closed reconcile; mixed; log_trade bool.
+# Стратегия, скринер, CONSERVATIVE, POSITION_QUANTITY_IS_LOTS — НЕ менялись.
 
 import asyncio
 import csv
@@ -21,6 +13,7 @@ import logging
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Dict
 
 import pandas as pd
 from t_tech.invest import (
@@ -33,7 +26,7 @@ import config
 import logger as research_logger
 from risk_manager import RiskManager
 from strategy import StrategyManager
-from tinkoff_client import TinkoffClient
+from tinkoff_client import TinkoffClient, PRICE_MONITOR_FILE, PRICE_MONITOR_DIR
 from execution import ExecutionMonitor, PositionState
 from screener import Screener
 
@@ -57,9 +50,67 @@ main_client = None
 reconcile_done = False
 monitor_ref = None
 
-# Защита от повторной записи одного события по одной свече.
-# Сбрасывается при перезапуске программы.
-_strategy_event_keys = set()
+# ДИАГНОСТИКА: состояние отсутствия цен по FIGI
+_price_state: Dict[str, Dict[str, str]] = {}
+
+
+def _price_monitor_append(lines: list) -> None:
+    """Пишет блок строк в logs/price_monitor.log. Не падает при ошибке."""
+    try:
+        os.makedirs(PRICE_MONITOR_DIR, exist_ok=True)
+        with open(PRICE_MONITOR_FILE, "a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
+            f.write("\n")
+    except Exception as e:
+        logging.warning(f"[price_monitor] Не удалось записать лог: {e}")
+
+
+def _track_price_state(prices: Dict[str, float], tickers_by_figi: Dict[str, str]) -> None:
+    """
+    ДИАГНОСТИКА: сравнивает текущий набор цен с предыдущим состоянием.
+    PRICE_LOSS_STARTED — FIGI появился как отсутствующий.
+    PRICE_RECOVERED — ранее отсутствующий FIGI снова есть.
+    Торговую логику не меняет.
+    """
+    global _price_state
+    now_iso = datetime.now(timezone.utc).isoformat()
+    now_ts = datetime.now(timezone.utc)
+
+    # 1. Проверяем восстановления
+    for figi in list(_price_state.keys()):
+        if figi in prices and prices[figi] > 0:
+            info = _price_state.pop(figi)
+            ticker = info.get("ticker", figi)
+            missing_since = info.get("missing_since")
+            duration = "?"
+            if missing_since:
+                try:
+                    dt0 = datetime.fromisoformat(missing_since)
+                    duration = f"{int((now_ts - dt0).total_seconds())} sec"
+                except Exception:
+                    pass
+            _price_monitor_append([
+                f"[{now_iso}] PRICE_RECOVERED",
+                f"Ticker: {ticker}",
+                f"FIGI: {figi}",
+                f"Duration: {duration}",
+                f"Missing since: {missing_since or '?'}",
+            ])
+
+    # 2. Проверяем новые потери (только по инструментам из TOP-10)
+    for figi, ticker in tickers_by_figi.items():
+        if figi not in prices or prices.get(figi, 0) <= 0:
+            if figi not in _price_state:
+                _price_state[figi] = {
+                    "ticker": ticker,
+                    "missing_since": now_iso,
+                }
+                _price_monitor_append([
+                    f"[{now_iso}] PRICE_LOSS_STARTED",
+                    f"Ticker: {ticker}",
+                    f"FIGI: {figi}",
+                ])
 
 
 def is_trading_enabled() -> bool:
@@ -95,6 +146,7 @@ def get_status():
     uncertain = "ДА" if (main_client and main_client.is_uncertain()) else "нет"
     trading = "АКТИВНА" if is_trading_enabled() else "СТОП"
     tg_status = "работает" if telegram_bot else "НЕДОСТУПЕН"
+    price_missing = len(_price_state)
     return (
         f"🤖 Статус\n"
         f"Торговля: {trading}\n"
@@ -102,6 +154,7 @@ def get_status():
         f"Режим: SANDBOX\n"
         f"Сверка: {'OK' if reconcile_done else 'НЕ ЗАВЕРШЕНА'}\n"
         f"Неопределённость: {uncertain}\n"
+        f"Без цены: {price_missing}\n"
         f"Для новых входов ({len(top_instruments)}): {instruments}\n"
         f"Под мониторингом ({monitor_ref.active_count() if monitor_ref else 0}): {monitored}"
     )
@@ -117,7 +170,6 @@ async def notify(text: str):
 
 
 async def _stop_telegram_bot():
-    """Корректное завершение Telegram-приложения."""
     global telegram_bot
     if telegram_bot is None:
         return
@@ -142,7 +194,6 @@ async def _stop_telegram_bot():
 
 
 async def _try_create_telegram_bot() -> bool:
-    """Создаёт TelegramBot с ПОЛНЫМ lifecycle: initialize → start → start_polling."""
     global telegram_bot
     if not (config.ENABLE_TELEGRAM and TelegramBot):
         return False
@@ -206,106 +257,7 @@ def _trade_id_already_logged(trade_id: str) -> bool:
         return True
 
 
-def _timestamp_for_log(value):
-    """Преобразует временную метку в JSON-совместимую строку."""
-    if value is None:
-        return None
-
-    if hasattr(value, "isoformat"):
-        try:
-            return value.isoformat()
-        except Exception:
-            pass
-
-    return str(value)
-
-
-def _log_strategy_diagnostic(
-    event_type: str,
-    ticker: str,
-    figi: str,
-    signal: str,
-    reason: str,
-    sm: StrategyManager,
-    df: pd.DataFrame,
-    price: float,
-):
-    """
-    Записывает диагностическое событие стратегии в JSONL.
-
-    Дедупликация: один event_type на тикер и время сигнальной свечи.
-    Если запись не удалась, ключ не сохраняется — следующая итерация
-    сможет повторить попытку.
-    """
-    try:
-        candle_time = getattr(sm, "last_signal_candle_time", None)
-
-        if candle_time is None and df is not None and not df.empty:
-            candle_time = df.index[-1]
-
-        candle_time_text = _timestamp_for_log(candle_time)
-
-        if candle_time_text is None:
-            candle_time_text = "UNKNOWN"
-
-        event_key = (event_type, ticker, candle_time_text)
-
-        if event_key in _strategy_event_keys:
-            return
-
-        last_close = None
-        last_volume = None
-
-        if df is not None and not df.empty:
-            if "close" in df.columns:
-                value = df["close"].iloc[-1]
-                if pd.notna(value):
-                    last_close = float(value)
-
-            if "volume" in df.columns:
-                value = df["volume"].iloc[-1]
-                if pd.notna(value):
-                    last_volume = float(value)
-
-        adx_value = getattr(sm, "last_adx_value", None)
-
-        if adx_value is not None:
-            try:
-                adx_value = float(adx_value)
-            except (TypeError, ValueError):
-                adx_value = None
-
-        payload = {
-            "ticker": ticker,
-            "figi": figi,
-            "signal": signal,
-            "reason": reason,
-            "signal_candle_time": candle_time_text,
-            "candles_count": int(len(df)) if df is not None else 0,
-            "regime": getattr(sm, "_last_regime", None),
-            "regime_candidate": getattr(sm, "_last_regime_candidate", None),
-            "regime_streak": getattr(sm, "_regime_streak", None),
-            "adx": adx_value,
-            "price": float(price),
-            "last_close": last_close,
-            "last_volume": last_volume,
-        }
-
-        if research_logger.log_event(event_type, payload):
-            _strategy_event_keys.add(event_key)
-
-    except Exception as e:
-        logging.warning(
-            f"[strategy-log] Не удалось записать {event_type} "
-            f"для {ticker}: {type(e).__name__}: {e}"
-        )
-
-
 async def reconcile(client: TinkoffClient, monitor: ExecutionMonitor):
-    """
-    Fail-closed: если get_positions() вернул None (ошибка API),
-    uncertain_state НЕ снимается, reconcile_done = False.
-    """
     global reconcile_done
     positions = await client.get_positions()
 
@@ -500,6 +452,11 @@ async def process_closing(client: TinkoffClient, monitor: ExecutionMonitor):
 async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyManager, monitor: ExecutionMonitor):
     figi_to_monitor = list(monitor.positions.keys()) or [i['figi'] for i in top_instruments]
     prices = await client.get_last_prices(figi_to_monitor)
+
+    # ДИАГНОСТИКА: отслеживание потерь/восстановлений цен (только для TOP-10)
+    tickers_by_figi = {i['figi']: i['ticker'] for i in top_instruments}
+    _track_price_state(prices, tickers_by_figi)
+
     if not prices:
         logging.warning("Нет цен — пропуск итерации")
         return
@@ -560,33 +517,11 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
         df = df.set_index('time').sort_index()
 
         signal, reason = sm.get_signal(df, float(price), drop_incomplete=True)
-
         if signal == "HOLD":
             logging.info(f"{inst['ticker']}: HOLD ({reason})")
-            _log_strategy_diagnostic(
-                event_type="STRATEGY_HOLD",
-                ticker=inst['ticker'],
-                figi=figi,
-                signal=signal,
-                reason=reason,
-                sm=sm,
-                df=df,
-                price=float(price),
-            )
             continue
-
         if signal == "SELL":
             logging.info(f"{inst['ticker']}: SELL без позиции — шорт запрещён")
-            _log_strategy_diagnostic(
-                event_type="STRATEGY_SELL_IGNORED",
-                ticker=inst['ticker'],
-                figi=figi,
-                signal=signal,
-                reason=reason,
-                sm=sm,
-                df=df,
-                price=float(price),
-            )
             continue
 
         lots = await rm.calculate_position_size(figi, float(price), df)
