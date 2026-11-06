@@ -1,9 +1,9 @@
 # main.py
 # Tsclp_v2.1_volatile — основной цикл (ТОЛЬКО ПЕСОЧНИЦА).
 #
-# ДИАГНОСТИКА: отслеживание PRICE_LOSS_STARTED / PRICE_RECOVERED
-#              в logs/price_monitor.log (через _track_price_state).
-#              Торговая логика не меняется.
+# DIAGNOSTIC FIX ONLY: _track_price_state получает только фактически
+#                      запрошенные FIGI (из figi_to_monitor), а не все TOP-10.
+#                      Торговая логика и состав запросов цен НЕ менялись.
 # ИЗМЕНЕНО (ТЗ): Telegram lifecycle; fail-closed reconcile; mixed; log_trade bool.
 # Стратегия, скринер, CONSERVATIVE, POSITION_QUANTITY_IS_LOTS — НЕ менялись.
 
@@ -72,6 +72,7 @@ def _track_price_state(prices: Dict[str, float], tickers_by_figi: Dict[str, str]
     PRICE_LOSS_STARTED — FIGI появился как отсутствующий.
     PRICE_RECOVERED — ранее отсутствующий FIGI снова есть.
     Торговую логику не меняет.
+    ВАЖНО: tickers_by_figi должен содержать ТОЛЬКО фактически запрошенные FIGI.
     """
     global _price_state
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -98,7 +99,7 @@ def _track_price_state(prices: Dict[str, float], tickers_by_figi: Dict[str, str]
                 f"Missing since: {missing_since or '?'}",
             ])
 
-    # 2. Проверяем новые потери (только по инструментам из TOP-10)
+    # 2. Проверяем новые потери (только по фактически запрошенным FIGI)
     for figi, ticker in tickers_by_figi.items():
         if figi not in prices or prices.get(figi, 0) <= 0:
             if figi not in _price_state:
@@ -453,8 +454,9 @@ async def trading_cycle(client: TinkoffClient, rm: RiskManager, sm: StrategyMana
     figi_to_monitor = list(monitor.positions.keys()) or [i['figi'] for i in top_instruments]
     prices = await client.get_last_prices(figi_to_monitor)
 
-    # ДИАГНОСТИКА: отслеживание потерь/восстановлений цен (только для TOP-10)
-    tickers_by_figi = {i['figi']: i['ticker'] for i in top_instruments}
+    # ДИАГНОСТИКА: отслеживаем ТОЛЬКО фактически запрошенные FIGI.
+    # tickers_by_figi строится из figi_to_monitor (а не из всех top_instruments).
+    tickers_by_figi = {i['figi']: i['ticker'] for i in top_instruments if i['figi'] in figi_to_monitor}
     _track_price_state(prices, tickers_by_figi)
 
     if not prices:
